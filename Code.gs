@@ -7,18 +7,29 @@ function onOpen() {
   ui.createMenu('Google Fit')
       .addItem('Authorize if needed (does nothing if already authorized)', 'showSidebar')
       .addItem('Get Steps for Yesterday', 'getSteps')
+      .addItem('Get Steps for past 30 days', 'getHistory')
       .addToUi();
 }
 
-// see step count example at https://developers.google.com/fit/scenarios/read-daily-step-total
 function getSteps() {
+  getStepsForDay(1, 'Steps');
+}
+
+function getHistory() {
+  for(var day = 1; day <= 30; day++) {
+    getStepsForDay(day, 'History');
+  }
+}
+
+// see step count example at https://developers.google.com/fit/scenarios/read-daily-step-total
+function getStepsForDay(daysAgo, tabName) {
   var start = new Date();
   start.setHours(0,0,0,0);
-  start.setDate(start.getDate()-1);
+  start.setDate(start.getDate() - daysAgo);
 
   var end = new Date();
   end.setHours(23,59,59,999);
-  end.setDate(end.getDate()-1);
+  end.setDate(end.getDate() - daysAgo);
   
   var fitService = getFitService();
   
@@ -45,7 +56,7 @@ function getSteps() {
   var steps = json.bucket[0].dataset[0].point[0].value[0].intVal;
   
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName('Steps');
+  var sheet = ss.getSheetByName(tabName);
   sheet.appendRow([start, steps]);
 }
 
