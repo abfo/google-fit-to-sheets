@@ -6,38 +6,48 @@ function onOpen() {
   var ui = SpreadsheetApp.getUi();
   ui.createMenu('Google Fit')
       .addItem('Authorize if needed (does nothing if already authorized)', 'showSidebar')
-      .addItem('Get Steps for Yesterday', 'getSteps')
-      .addItem('Get Steps for past 30 days', 'getHistory')
+      .addItem('Get Metrics for Yesterday', 'getMetrics')
+      .addItem('Get Metrics for past 60 days', 'getHistory')
+      .addItem('Reset Settings', 'clearProps')
       .addToUi();
 }
 
-function getSteps() {
-  getStepsForDay(1, 'Steps');
+function getMetrics() {
+  getMetricsForDays(1, 1, 'Metrics');
 }
 
 function getHistory() {
-  for(var day = 1; day <= 30; day++) {
-    getStepsForDay(day, 'History');
-  }
+  getMetricsForDays(1, 60, 'History');
 }
 
 // see step count example at https://developers.google.com/fit/scenarios/read-daily-step-total
-function getStepsForDay(daysAgo, tabName) {
+// adapted below to handle multiple metrics (steps, weight, distance), only logged if present for day
+function getMetricsForDays(fromDaysAgo, toDaysAgo, tabName) {
   var start = new Date();
   start.setHours(0,0,0,0);
-  start.setDate(start.getDate() - daysAgo);
+  start.setDate(start.getDate() - toDaysAgo);
 
   var end = new Date();
   end.setHours(23,59,59,999);
-  end.setDate(end.getDate() - daysAgo);
+  end.setDate(end.getDate() - fromDaysAgo);
   
   var fitService = getFitService();
   
   var request = {
-    "aggregateBy": [{
-      "dataTypeName": "com.google.step_count.delta",
-      "dataSourceId": "derived:com.google.step_count.delta:com.google.android.gms:estimated_steps"
-    }],
+    "aggregateBy": [
+      {
+        "dataTypeName": "com.google.step_count.delta",
+        "dataSourceId": "derived:com.google.step_count.delta:com.google.android.gms:estimated_steps"
+      },
+      {
+        "dataTypeName": "com.google.weight.summary",
+        "dataSourceId": "derived:com.google.weight:com.google.android.gms:merge_weight"
+      },
+      {
+        "dataTypeName": "com.google.distance.delta",
+        "dataSourceId": "derived:com.google.distance.delta:com.google.android.gms:merge_distance_delta"
+      }
+    ],
     "bucketByTime": { "durationMillis": 86400000 },
     "startTimeMillis": start.getTime(),
     "endTimeMillis": end.getTime()
@@ -53,11 +63,34 @@ function getStepsForDay(daysAgo, tabName) {
   });
   
   var json = JSON.parse(response.getContentText());
-  var steps = json.bucket[0].dataset[0].point[0].value[0].intVal;
-  
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName(tabName);
-  sheet.appendRow([start, steps]);
+  
+  for(var b = 0; b < json.bucket.length; b++) {
+    // each bucket in our response should be a day
+    var bucketDate = new Date(parseInt(json.bucket[b].startTimeMillis, 10));
+    
+    var steps = -1;
+    var weight = -1;
+    var distance = -1;
+    
+    if (json.bucket[b].dataset[0].point.length > 0) {
+      steps = json.bucket[b].dataset[0].point[0].value[0].intVal;
+    }
+    
+    if (json.bucket[b].dataset[1].point.length > 0) {
+      weight = json.bucket[b].dataset[1].point[0].value[0].fpVal;
+    }
+    
+    if (json.bucket[b].dataset[2].point.length > 0) {
+      distance = json.bucket[b].dataset[2].point[0].value[0].fpVal;
+    }
+    
+    sheet.appendRow([bucketDate, 
+                     steps == -1 ? ' ' : steps, 
+                     weight == -1 ? ' ' : weight, 
+                     distance == -1 ? ' ' : distance]);
+  }
 }
 
 // functions below adapted from Google OAuth example at https://github.com/googlesamples/apps-script-oauth2
@@ -85,7 +118,7 @@ function getFitService() {
 
       // Set the scopes to request (space-separated for Google services).
       // see https://developers.google.com/fit/rest/v1/authorization for a list of Google Fit scopes
-      .setScope('https://www.googleapis.com/auth/fitness.activity.read')
+      .setScope('https://www.googleapis.com/auth/fitness.activity.read https://www.googleapis.com/auth/fitness.body.read https://www.googleapis.com/auth/fitness.location.read')
 
       // Below are Google-specific OAuth2 parameters.
 
@@ -124,4 +157,8 @@ function authCallback(request) {
   } else {
     return HtmlService.createHtmlOutput('Denied. You can close this tab');
   }
+}
+
+function clearProps() {
+  PropertiesService.getUserProperties().deleteAllProperties();
 }
